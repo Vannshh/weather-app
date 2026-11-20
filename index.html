@@ -13,9 +13,10 @@
   body { margin:0; font-family: "Segoe UI", Calibri, Arial, sans-serif; background:var(--bg); color:var(--text); min-height:100vh; display:flex; justify-content:center; padding:32px 16px; }
   main { width:100%; max-width:520px; }
   h1 { font-size:1.6rem; margin:0 0 16px; }
-  form { display:flex; gap:8px; margin-bottom:20px; }
-  input { flex:1; padding:12px 14px; font-size:1rem; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); }
+  form { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+  input { flex:1; min-width:160px; padding:12px 14px; font-size:1rem; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); }
   button { padding:12px 18px; font-size:1rem; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  button.secondary { background:var(--card); color:var(--accent); border:1px solid var(--accent); }
   input:focus-visible, button:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; }
   .city { color:var(--muted); margin:0 0 4px; }
@@ -36,10 +37,11 @@
   <form id="searchForm">
     <input id="cityInput" type="text" placeholder="Enter a city, e.g. Meerut" aria-label="City name" required>
     <button type="submit">Search</button>
+    <button type="button" id="locBtn" class="secondary">📍 My Location</button>
   </form>
 
   <section class="card" id="result" aria-live="polite">
-    <p class="msg">Search for a city to see its weather.</p>
+    <p class="msg">Search for a city or use your location to see the weather.</p>
   </section>
 </main>
 
@@ -48,6 +50,7 @@
   const form = document.getElementById("searchForm");
   const input = document.getElementById("cityInput");
   const result = document.getElementById("result");
+  const locBtn = document.getElementById("locBtn");
 
   // STEP 2: Weather codes (sent by the API) -> readable text
   function describe(code) {
@@ -65,8 +68,8 @@
   // STEP 3: API call #1 - convert the city name to latitude/longitude
   async function getCoordinates(city) {
     const url = "https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + encodeURIComponent(city);
-    const response = await fetch(url);          // send request
-    const data = await response.json();         // read response (JSON)
+    const response = await fetch(url);
+    const data = await response.json();
     if (!data.results) throw new Error("City not found. Check the spelling and try again.");
     return data.results[0];                     // { name, country, latitude, longitude }
   }
@@ -93,7 +96,7 @@
     }
 
     result.innerHTML =
-      '<p class="city">' + place.name + ", " + place.country + "</p>" +
+      '<p class="city">' + place.name + (place.country ? ", " + place.country : "") + "</p>" +
       '<p class="temp">' + Math.round(now.temperature) + "°C</p>" +
       '<p class="cond">' + describe(now.weathercode) + "</p>" +
       '<p class="wind">Wind: ' + now.windspeed + " km/h</p>" +
@@ -111,6 +114,49 @@
     } catch (error) {
       result.innerHTML = '<p class="error">' + error.message + "</p>";
     }
+  });
+
+  // STEP 7: Coordinates -> place name (free reverse geocoding API)
+  async function getPlaceName(lat, lon) {
+    try {
+      const url = "https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=" + lat +
+        "&longitude=" + lon + "&localityLanguage=en";
+      const response = await fetch(url);
+      const data = await response.json();
+      return { name: data.city || data.locality || "Your location", country: data.countryName || "" };
+    } catch (e) {
+      return { name: "Your location", country: "" };   // weather still shows even if the name fails
+    }
+  }
+
+  // STEP 8: "My Location" button
+  locBtn.addEventListener("click", function () {
+    if (!navigator.geolocation) {
+      result.innerHTML = '<p class="error">Your browser does not support location.</p>';
+      return;
+    }
+    result.innerHTML = '<p class="msg">Getting your location...</p>';
+
+    navigator.geolocation.getCurrentPosition(
+      async function (pos) {                            // success
+        try {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          const place = await getPlaceName(lat, lon);
+          const weather = await getWeather(lat, lon);
+          render(place, weather);
+        } catch (error) {
+          result.innerHTML = '<p class="error">' + error.message + "</p>";
+        }
+      },
+      function (err) {                                  // failure
+        const msg = err.code === 1
+          ? "Location permission denied. Allow location access or search by city."
+          : "Could not get your location. Try again or search by city.";
+        result.innerHTML = '<p class="error">' + msg + "</p>";
+      },
+      { timeout: 10000 }
+    );
   });
 </script>
 </body>
