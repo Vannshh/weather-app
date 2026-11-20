@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weather Now</title>
+<style>
+  :root { --bg:#eef4f8; --card:#ffffff; --text:#14222e; --muted:#5b6b78; --accent:#1f6fa8; --line:#d5e1ea; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1a23; --card:#172632; --text:#e8f0f6; --muted:#93a7b5; --accent:#5fb0e6; --line:#25394a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: "Segoe UI", Calibri, Arial, sans-serif; background:var(--bg); color:var(--text); min-height:100vh; display:flex; justify-content:center; padding:32px 16px; }
+  main { width:100%; max-width:520px; }
+  h1 { font-size:1.6rem; margin:0 0 16px; }
+  form { display:flex; gap:8px; margin-bottom:20px; }
+  input { flex:1; padding:12px 14px; font-size:1rem; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); }
+  button { padding:12px 18px; font-size:1rem; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
+  input:focus-visible, button:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; }
+  .city { color:var(--muted); margin:0 0 4px; }
+  .temp { font-size:4rem; font-weight:600; margin:0; line-height:1.1; }
+  .cond { font-size:1.15rem; margin:4px 0 0; }
+  .wind { color:var(--muted); margin:8px 0 0; }
+  .days { list-style:none; padding:0; margin:20px 0 0; border-top:1px solid var(--line); }
+  .days li { display:flex; justify-content:space-between; padding:12px 0; border-bottom:1px solid var(--line); }
+  .days li:last-child { border-bottom:0; }
+  .msg { color:var(--muted); }
+  .error { color:#c0392b; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Weather Now</h1>
+
+  <form id="searchForm">
+    <input id="cityInput" type="text" placeholder="Enter a city, e.g. Meerut" aria-label="City name" required>
+    <button type="submit">Search</button>
+  </form>
+
+  <section class="card" id="result" aria-live="polite">
+    <p class="msg">Search for a city to see its weather.</p>
+  </section>
+</main>
+
+<script>
+  // STEP 1: Get references to the HTML elements we need
+  const form = document.getElementById("searchForm");
+  const input = document.getElementById("cityInput");
+  const result = document.getElementById("result");
+
+  // STEP 2: Weather codes (sent by the API) -> readable text
+  function describe(code) {
+    if (code === 0) return "Clear sky";
+    if (code <= 3) return "Partly cloudy";
+    if (code <= 48) return "Fog";
+    if (code <= 57) return "Drizzle";
+    if (code <= 67) return "Rain";
+    if (code <= 77) return "Snow";
+    if (code <= 82) return "Rain showers";
+    if (code <= 86) return "Snow showers";
+    return "Thunderstorm";
+  }
+
+  // STEP 3: API call #1 - convert the city name to latitude/longitude
+  async function getCoordinates(city) {
+    const url = "https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + encodeURIComponent(city);
+    const response = await fetch(url);          // send request
+    const data = await response.json();         // read response (JSON)
+    if (!data.results) throw new Error("City not found. Check the spelling and try again.");
+    return data.results[0];                     // { name, country, latitude, longitude }
+  }
+
+  // STEP 4: API call #2 - get the weather for those coordinates
+  async function getWeather(lat, lon) {
+    const url = "https://api.open-meteo.com/v1/forecast?latitude=" + lat + "&longitude=" + lon +
+      "&current_weather=true&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto";
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Weather service is not responding. Try again later.");
+    return response.json();
+  }
+
+  // STEP 5: Show the data on the page
+  function render(place, weather) {
+    const now = weather.current_weather;
+    const d = weather.daily;
+
+    let rows = "";
+    for (let i = 1; i <= 5; i++) {              // next 5 days
+      const day = new Date(d.time[i]).toLocaleDateString("en-IN", { weekday: "long" });
+      rows += "<li><span>" + day + "</span><span>" + describe(d.weathercode[i]) + "</span><span>" +
+        Math.round(d.temperature_2m_min[i]) + "° / " + Math.round(d.temperature_2m_max[i]) + "°</span></li>";
+    }
+
+    result.innerHTML =
+      '<p class="city">' + place.name + ", " + place.country + "</p>" +
+      '<p class="temp">' + Math.round(now.temperature) + "°C</p>" +
+      '<p class="cond">' + describe(now.weathercode) + "</p>" +
+      '<p class="wind">Wind: ' + now.windspeed + " km/h</p>" +
+      '<ul class="days">' + rows + "</ul>";
+  }
+
+  // STEP 6: When the user clicks Search, run everything
+  form.addEventListener("submit", async function (event) {
+    event.preventDefault();                     // stop the page from reloading
+    result.innerHTML = '<p class="msg">Loading...</p>';
+    try {
+      const place = await getCoordinates(input.value.trim());
+      const weather = await getWeather(place.latitude, place.longitude);
+      render(place, weather);
+    } catch (error) {
+      result.innerHTML = '<p class="error">' + error.message + "</p>";
+    }
+  });
+</script>
+</body>
+</html>
